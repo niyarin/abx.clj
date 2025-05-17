@@ -1,4 +1,4 @@
-(ns abx.decoder
+(ns abx.reader
   [:require [clojure.java.io :as jio]])
 
 (defn- read-2byte-le [brdr]
