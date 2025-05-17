@@ -131,10 +131,28 @@
      :key key'
      :value val'}))
 
+(def attribute-type-map
+  {0x00 :null
+   0x01 :reference
+   0x02 :attribute
+   0x03 :string
+   0x04 :float
+   0x05 :dimension
+   0x06 :fraction
+   0x07 :dynamic-reference
+   0x08 :dynamic-attribute
+   0x10 :int
+   0x11 :hex
+   0x12 :boolean
+   0x1c :color-int
+   0x1d :color-argb8
+   0x1e :color-argb4
+   0x1f :color-rgb4 })
+
 (defn- read-sttribute-value-node [brdr]
   (let [size (read-2byte-le brdr)
         _ (.read brdr)
-        type' (.read brdr)
+        type' (get attribute-type-map (.read brdr))
         value (read-4byte-le brdr)]
     {:size size
      :type type'
@@ -145,9 +163,10 @@
         value (read-sttribute-value-node brdr)]
     {:namespace (:namespace info)
      :key (:key info)
+     :type (:type value)
      :val (if (:value info)
             (:value info)
-            value)}))
+            (:value value))}))
 
 (declare read-tree)
 
