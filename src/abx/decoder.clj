@@ -57,11 +57,20 @@
          (mapv (fn [_] (char (read-2byte-le brdr))))
          (apply str))))
 
-(defn- read-string-pool [brdr offsets]
-  (let [offset-table (conj offsets 0)]
+(defn- skip-bytes [brdr n-skips]
+  (dotimes [_ n-skips]
+    (.read brdr)))
+
+(defn- read-string-pool [brdr offsets {:keys [pool-size n-pooled-string]}]
+  (let [last-offset (- pool-size 28 (* n-pooled-string 4))
+        offset-table (conj offsets last-offset)]
     (mapv (fn [index]
             (let [res (read-each-string-pool brdr)]
-              (read-2byte-le brdr)
+              (skip-bytes brdr (- (nth offset-table (inc index))
+                                  (+ (nth offset-table index)
+                                     2
+                                     (* 2 (count res)))))
+
               res))
           (range (count offsets)))))
 
@@ -229,9 +238,9 @@
 
 (defn decode-abx [brdr]
   (handle-file-header brdr)
-  (let [pool-header (handle-pool-header brdr)]
-    (let [offset-table (read-offset-tables brdr (:n-pooled-string pool-header))
-          string-pool (read-string-pool brdr offset-table)]
+  (let [string-pool-header (handle-pool-header brdr)
+        offset-table (read-offset-tables brdr (:n-pooled-string string-pool-header))
+        string-pool (read-string-pool brdr offset-table string-pool-header)]
       (let [n-attribute-ids (quot (- (handle-xml-info-header brdr) 8) 4)]
         (read-attribute-id-table brdr n-attribute-ids)
         (read-start-treenode brdr)
@@ -239,4 +248,4 @@
         (let [tree (read-tree brdr string-pool)]
           (read-end-treenode brdr)
           (read-namespace-info-node brdr string-pool)
-          tree)))))
+          tree))))
