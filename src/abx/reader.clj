@@ -1,5 +1,5 @@
 (ns abx.reader
-  [:require [clojure.java.io :as jio]])
+  (:require [clojure.data.xml :as xml]))
 
 (defn- read-2byte-le [brdr]
   (let [b1 (.read brdr)
@@ -89,8 +89,7 @@
 (defn- read-namespace-info-node [brdr string-pool]
   (let [namespace' (nth string-pool (read-4byte-le brdr))
         uri (nth string-pool (read-4byte-le brdr))]
-    {:namespace namespace'
-     :uri uri}))
+    {uri namespace'}))
 
 (defn read-start-tag  [brdr]
   ;without sign
@@ -114,8 +113,7 @@
 
 (defn- read-start-extended-node [brdr string-pool]
   (let [namespace-pool-id (read-4byte-le brdr)
-        tag-name-id (read-4byte-le brdr)
-        tag-name (nth string-pool tag-name-id)
+        tag-name (nth string-pool (read-4byte-le brdr))
         offset (read-2byte-le brdr)
         size (read-2byte-le brdr)
         n-attributes (read-2byte-le brdr)
@@ -123,7 +121,6 @@
         class' (read-2byte-le brdr)
         style (read-2byte-le brdr)]
     {:tag-name tag-name
-     :tag-name-id tag-name-id
      :offset offset
      :class class'
      :style style
@@ -156,7 +153,7 @@
    0x1c :color-int
    0x1d :color-argb8
    0x1e :color-argb4
-   0x1f :color-rgb4 })
+   0x1f :color-rgb4})
 
 (defn- read-sttribute-value-node [brdr]
   (let [size (read-2byte-le brdr)
@@ -170,31 +167,21 @@
 (defn- read-node-attribute [brdr string-pool]
   (let [info (read-attribute-info-node brdr string-pool)
         value (read-sttribute-value-node brdr)]
-    {:namespace (:namespace info)
-     :key (:key info)
-     :type (:type value)
-     :val (if (:value info)
-            (:value info)
-            (:value value))}))
+    [(keyword (:namespace info) (:key info))
+     (if (:value info)
+       (:value info)
+       (:value value))]))
 
-(declare read-tree)
-
-(defn- read-xml-node [brdr string-pool]
-  (let [tag (read-start-tag brdr)
+(defn- read-open-node [brdr string-pool]
+  (let [start-tag (read-start-tag brdr)
         extended-tag (read-start-extended-node brdr string-pool)
         attributes
-        (mapv
-         (fn [_] (read-node-attribute brdr string-pool))
-         (range (:n-attributes extended-tag)))]
-    (loop [v (read-tree brdr string-pool)
-           children []]
-      (case (:type v)
-        :node (recur (read-tree brdr string-pool)
-                     (conj children v))
-        :close {:type :node
-                :tag-name (:tag-name extended-tag)
-                :attributes attributes
-                :children children}))))
+        (->> (range (:n-attributes extended-tag))
+             (mapv (fn [_] (read-node-attribute brdr string-pool)))
+             (into {}))]
+    {:tag (keyword (:tag-name extended-tag))
+     :attributes attributes
+     :open-or-close :open}))
 
 (defn- read-close-tag [brdr string-pool]
   (let [size (read-2byte-le brdr)
@@ -216,14 +203,29 @@
 (defn- read-close-node [brdr string-pool]
   (let [close-tag (read-close-tag brdr string-pool)
         extended-tag (read-extended-close-tag brdr string-pool)]
-    {:type :close
-     :tag extended-tag}))
+    {:tag extended-tag
+     :open-or-close :close}))
 
-(defn- read-tree [brdr string-pool]
+(defn- read-node [brdr string-pool]
   (let [sign (read-2byte-le  brdr)]
     (case sign
-      0x0102 (read-xml-node brdr string-pool)
+      0x0102 (read-open-node brdr string-pool)
       0x0103 (read-close-node brdr string-pool))))
+
+(defn- read-flatten [brdr string-pool]
+  (loop [node (read-node brdr string-pool)
+         nest 0
+         res []]
+    (case (:open-or-close node)
+      :open (recur (read-node brdr string-pool)
+                   (inc nest)
+                   (conj res node))
+      :close (let [new-nest (dec nest)]
+               (if (zero? new-nest)
+                 (conj res node)
+                 (recur (read-node brdr string-pool)
+                        new-nest
+                        (conj res node)))))))
 
 (defn- read-end-treenode [brdr]
   (let [sign (read-2byte-le  brdr)
@@ -236,16 +238,32 @@
     {:linenumber linenumber
      :comment comment}))
 
-(defn decode-abx [brdr]
+(defn read-abx-as-flatten [brdr]
   (handle-file-header brdr)
   (let [string-pool-header (handle-pool-header brdr)
         offset-table (read-offset-tables brdr (:n-pooled-string string-pool-header))
         string-pool (read-string-pool brdr offset-table string-pool-header)]
-      (let [n-attribute-ids (quot (- (handle-xml-info-header brdr) 8) 4)]
-        (read-attribute-id-table brdr n-attribute-ids)
-        (read-start-treenode brdr)
+    (let [n-attribute-ids (quot (- (handle-xml-info-header brdr) 8) 4)]
+      (read-attribute-id-table brdr n-attribute-ids)
+      (read-start-treenode brdr)
+      (let [uri->ns (read-namespace-info-node brdr string-pool)]
+        (let [ tree (read-flatten brdr string-pool)]
+        (read-end-treenode brdr)
         (read-namespace-info-node brdr string-pool)
-        (let [tree (read-tree brdr string-pool)]
-          (read-end-treenode brdr)
-          (read-namespace-info-node brdr string-pool)
-          tree))))
+        tree)))))
+
+(defn- construct-xml* [flatten-tree]
+  (let [{:keys [tag attributes  open-or-close]} (first flatten-tree)]
+    (if (= open-or-close :open)
+      (loop [[node flatten-tree] (construct-xml* (next flatten-tree))
+             children []]
+        (if (= node :close)
+          [(apply xml/element tag attributes children) flatten-tree]
+          (recur (construct-xml* (next flatten-tree)) (conj children node))))
+      [:close (next flatten-tree)])))
+
+(defn- construct-xml [flatten-tree]
+  (first (construct-xml* flatten-tree)))
+
+(defn read-abx [brdr]
+  (construct-xml (read-abx-as-flatten brdr)))
