@@ -4,4 +4,5 @@
   :license {:name "MIT Licsense" }
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [org.clojure/data.xml "0.0.8"]]
+  :main ^:skip-aot abx.cli
   :repl-options {:init-ns abx.core})

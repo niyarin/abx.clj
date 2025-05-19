@@ -254,7 +254,6 @@
 
 (defn- construct-xml* [flatten-tree]
   (let [{:keys [tag attributes  open-or-close]} (first flatten-tree)]
-    (clojure.pprint/pprint open-or-close)
     (if (= open-or-close :open)
       (loop [[node next-flatten-tree] (construct-xml* (next flatten-tree))
              children []]

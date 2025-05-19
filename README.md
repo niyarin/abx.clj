@@ -2,7 +2,7 @@
 Abx.clj is ABX(Android Binary XML) reader/writer Library for Clojure.
 
 
-## Usage
+## Usage (as library)
 
 ```clj
 (require '[abx.reader :as abx-rdr]
@@ -23,4 +23,10 @@ Abx.clj is ABX(Android Binary XML) reader/writer Library for Clojure.
 (with-open [rdr (jio/input-stream "./test.xml")]
   (emitter/emit-str (abx-rdr/read-abx rdr)))
 ;;=><?xml version=\"1.0\" encoding=\"UTF-8\"?><manifest android:versionCode= ...
+```
+
+## Usage (as CLI program)
+### leiningen
+```bash
+lein run decode --input-file ./xxx.xml --output-file ./output-xxx.xml
 ```
