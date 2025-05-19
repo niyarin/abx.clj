@@ -247,19 +247,21 @@
       (read-attribute-id-table brdr n-attribute-ids)
       (read-start-treenode brdr)
       (let [uri->ns (read-namespace-info-node brdr string-pool)]
-        (let [ tree (read-flatten brdr string-pool)]
-        (read-end-treenode brdr)
-        (read-namespace-info-node brdr string-pool)
-        tree)))))
+        (let [tree (read-flatten brdr string-pool)]
+          (read-end-treenode brdr)
+          (read-namespace-info-node brdr string-pool)
+          tree)))))
 
 (defn- construct-xml* [flatten-tree]
   (let [{:keys [tag attributes  open-or-close]} (first flatten-tree)]
+    (clojure.pprint/pprint open-or-close)
     (if (= open-or-close :open)
-      (loop [[node flatten-tree] (construct-xml* (next flatten-tree))
+      (loop [[node next-flatten-tree] (construct-xml* (next flatten-tree))
              children []]
         (if (= node :close)
-          [(apply xml/element tag attributes children) flatten-tree]
-          (recur (construct-xml* (next flatten-tree)) (conj children node))))
+          [(apply xml/element tag attributes children) next-flatten-tree]
+          (recur (construct-xml* next-flatten-tree)
+                 (conj children node))))
       [:close (next flatten-tree)])))
 
 (defn- construct-xml [flatten-tree]
