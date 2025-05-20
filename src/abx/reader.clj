@@ -29,6 +29,11 @@
       (error "Invalid file header."
              {:sign sign :header-size header-size}))))
 
+(defn- integer->pool-flags [integer]
+  (cond-> #{}
+    (not (zero? (bit-and integer 1))) (conj :sorted)
+    (not (zero? (bit-and integer 128))) (conj :utf-8)))
+
 (defn- handle-pool-header [brdr]
   (let [sign (read-2byte-le brdr)
         header-size (read-2byte-le brdr)]
@@ -36,7 +41,7 @@
       (let [pool-size (read-4byte-le brdr)
             n-pooled-string (read-4byte-le brdr)
             n-style-span-arrays (read-4byte-le brdr)
-            flag (read-4byte-le brdr)
+            flag (integer->pool-flags (read-4byte-le brdr))
             pooled-string-offset (read-4byte-le brdr)
             style-offset (read-4byte-le brdr)]
         {:pool-size pool-size
@@ -52,6 +57,7 @@
   (mapv (fn [_] (read-4byte-le brdr)) (range n-pooled-string)))
 
 (defn- read-each-string-pool [brdr]
+  ;;reading-utf16
   (let [len (read-2byte-le brdr)]
     (->> (range len)
          (mapv (fn [_] (char (read-2byte-le brdr))))
@@ -96,8 +102,10 @@
   (let [node-size (read-2byte-le brdr)
         total-node-size (read-4byte-le brdr)
         line-number (read-4byte-le brdr)
-        comment-number (read-4byte-le brdr)]
-    {:line-number line-number}))
+        comment-number (let [v (read-4byte-le brdr)]
+                         (when-not (= v 0xffffffff) v))]
+    {:line-number line-number
+     :comment-number comment-number}))
 
 (defn- read-start-treenode [brdr]
   (let [sign (read-2byte-le brdr)
@@ -180,6 +188,7 @@
              (mapv (fn [_] (read-node-attribute brdr string-pool)))
              (into {}))]
     {:tag (keyword (:tag-name extended-tag))
+     :meta start-tag
      :attributes attributes
      :open-or-close :open}))
 
