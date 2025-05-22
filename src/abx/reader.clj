@@ -261,13 +261,17 @@
           (read-namespace-info-node brdr string-pool)
           tree)))))
 
+(defn- node->xml-element [{:keys [tag attributes] meta' :meta} children]
+  (with-meta (apply xml/element tag attributes children)
+             meta'))
+
 (defn- construct-xml* [flatten-tree]
-  (let [{:keys [tag attributes  open-or-close]} (first flatten-tree)]
+  (let [{:keys [tag attributes  open-or-close] :as start-node} (first flatten-tree)]
     (if (= open-or-close :open)
       (loop [[node next-flatten-tree] (construct-xml* (next flatten-tree))
              children []]
         (if (= node :close)
-          [(apply xml/element tag attributes children) next-flatten-tree]
+          [(node->xml-element start-node children) next-flatten-tree]
           (recur (construct-xml* next-flatten-tree)
                  (conj children node))))
       [:close (next flatten-tree)])))
