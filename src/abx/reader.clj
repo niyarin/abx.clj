@@ -194,7 +194,7 @@
 
 (defn- read-close-tag [brdr string-pool]
   (let [size (read-2byte-le brdr)
-        nodesize (read-4byte-le brdr)
+        header-size (read-4byte-le brdr)
         linenumber (read-4byte-le brdr)
         comment-number (let [v (read-4byte-le brdr)]
                          (when-not (= v 0xffffffff) v))]
@@ -213,6 +213,7 @@
   (let [close-tag (read-close-tag brdr string-pool)
         extended-tag (read-extended-close-tag brdr string-pool)]
     {:tag extended-tag
+     :meta close-tag
      :open-or-close :close}))
 
 (defn- read-node [brdr string-pool]
@@ -239,18 +240,22 @@
 (defn- read-end-treenode [brdr]
   (let [sign (read-2byte-le  brdr)
         node-size (read-2byte-le brdr)
-        total-size (read-4byte-le brdr)
+        _ (read-4byte-le brdr)
         linenumber (read-4byte-le brdr)
         comment (let [v (read-4byte-le brdr)]
                   (when-not (= v 0xffffffff)
                     v))]
-    {:linenumber linenumber
-     :comment comment}))
+    (if (and (= sign 0x0101) (= node-size 16))
+      {:linenumber linenumber
+       :comment comment}
+      (error "Invalid end treenode."
+             {:sign sign :node-size node-size}))))
 
 (defn read-abx-as-flatten [brdr]
   (handle-file-header brdr)
   (let [string-pool-header (handle-pool-header brdr)
-        offset-table (read-offset-tables brdr (:n-pooled-string string-pool-header))
+        offset-table (read-offset-tables
+                       brdr (:n-pooled-string string-pool-header))
         string-pool (read-string-pool brdr offset-table string-pool-header)]
     (let [n-attribute-ids (quot (- (handle-xml-info-header brdr) 8) 4)]
       (read-attribute-id-table brdr n-attribute-ids)
@@ -266,8 +271,8 @@
              meta'))
 
 (defn- construct-xml* [flatten-tree]
-  (let [{:keys [tag attributes  open-or-close] :as start-node} (first flatten-tree)]
-    (if (= open-or-close :open)
+  (let [start-node (first flatten-tree)]
+    (if (= (:open-or-close start-node) :open)
       (loop [[node next-flatten-tree] (construct-xml* (next flatten-tree))
              children []]
         (if (= node :close)
